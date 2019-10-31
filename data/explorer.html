@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Dongle Explorer</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="bootstrap.min.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <script src="jquery.min.js"></script>
+  <script src="bootstrap.min.js"></script>
+  <script>
+    $(document).ready(function () {
+
+      var eventSource = new EventSource("/events");
+      var fileSize;
+
+      AdjustCardeareaHeight();
+      $(window).resize(AdjustCardeareaHeight);
+
+      eventSource.onmessage = function (event) {
+        // console.log("OnMessage, Event: " + event.event + ": ", event.data);
+      };
+
+      eventSource.addEventListener("progress", function (event) {
+        var per = (Math.round((parseInt(event.data) / fileSize) * 100)) + '%';
+        $('#progressUpload').css('width', per);
+        $('#progressUpload').html(per);
+        // console.log("Progress: ", per);
+      });
+
+      eventSource.addEventListener("success", function (event) {
+        // console.log("Success: ", event.data);
+      });
+
+      eventSource.addEventListener("error", function (event) {
+        // console.log("Error: ", event.data);
+      });
+
+      eventSource.onerror = function (event) {
+        // console.log("OnError", event);
+      };
+
+      eventSource.onopen = function (event) {
+        // console.log("OnOpen", event);
+      };
+
+      // $('#exampleModal').on('show.bs.modal', function (event) {
+      //   var button = $(event.relatedTarget) // Button that triggered the modal
+      //   var recipient = button.data('whatever') // Extract info from data-* attributes
+      //   // If necessary, you could initiate an AJAX request here (and then do the updating in a callback).
+      //   // Update the modal's content. We'll use jQuery here, but you could use a data binding library or other methods instead.
+      //   var modal = $(this)
+      //   modal.find('.modal-title').text('New message to ' + recipient)
+      //   modal.find('.modal-body input').val(recipient)
+      // });
+
+      $('#refresh').click(function () {
+        $.post("/fsread", {}, function (result) {
+          $('.card').empty();
+          $('.card').html('<table class="table table-hover">' +
+            '<thead><tr><th scope="col">#</th><th scope="col">FileName</th><th scope="col">Size</th><th scope="col">Options</th></tr></thead>' +
+            '<tbody></tbody></table>');
+          $('table').children('tbody').empty();
+          var val = 0;
+          $.each(result, function (key, value) {
+            $('table').children('tbody').append('<tr>' +
+                                                  '<th scope="row">' + (val++) + '</th>' + 
+                                                  '<td>' + key.replace('/', '') + '</td>' + 
+                                                  '<td>' + (parseInt(value) / 1024).toFixed(2) + ' KB</td>' + 
+                                                  '<td><button type="button" id="delete" class="btn btn-danger">Delete</button></td>' + 
+                                                '</tr>');
+          });
+        });
+      });
+
+      $('#task').click(function () {
+        $.post("/tasklist", {}, function (result) {
+          $('table').children('tbody').empty();
+          $('table').children('tbody').append(result);
+
+        });
+      });
+
+      $('#flash').click(function (event) {
+        $('#progressUpload').css('width', '0%');
+        $('#labelFilename').html('');
+        $("#upload").val("/flash")
+      });
+
+      $('#add').click(function (event) {
+        $('#progressUpload').css('width', '0%');
+        $('#labelFilename').html('');
+        $("#upload").val("/fsupload")
+      });
+
+      $('#fileUpload').change(function (event) {
+        $('#labelFilename').html("/" + $('#fileUpload')[0].files[0].name);
+        $('#progressUpload').css('width', '0%');
+      });
+
+      $("#upload").click(function (event) {
+        // Create an FormData object 
+        var file = $('#fileUpload')[0].files[0];
+        fileSize = file.size;
+        var formData = new FormData();
+        formData.append('file', file);
+
+        console.log(file);
+
+        // disabled the submit button
+        $("#upload").prop("disabled", true);
+        $("#add").prop("disabled", true);
+        $('.progress-bar').removeClass('bg-success').removeClass('bg-danger').addClass('bg-warning');
+
+        $.ajax({
+          type: "POST",
+          enctype: 'multipart/form-data',
+          url: $("#upload").val(),
+          data: formData,
+          processData: false,
+          contentType: false,
+          cache: false,
+          timeout: 600000,
+          success: function (data) {
+            $("#upload").prop("disabled", false);
+            $("#add").prop("disabled", false);
+            $('#refresh').click();
+            $('.progress-bar').removeClass('bg-warning').removeClass('bg-danger').addClass('bg-success');
+          },
+          error: function (e) {
+            $("#upload").prop("disabled", false);
+            $("#add").prop("disabled", false);
+            $('.progress-bar').removeClass('bg-warning').removeClass('bg-success').addClass('bg-danger');
+          }
+        });
+      });
+
+      $('.card').on('click', 'table button', function (event) {
+        $.post("/fsdelete", { file: '/' + $(this).parents()[1].children[1].innerHTML }, function (result) {
+          $('#refresh').click();
+        });
+      });
+
+      $('#info').click(function (event) {
+        GetInfo();
+      });
+
+      function AdjustCardeareaHeight() {
+        // $('div textarea').css('height', window.innerHeight - parseInt($('div').css('height')) - 30);
+        $('.card').css('height', window.innerHeight - (parseInt($('div').css('height')) + parseInt($('nav').css('height'))) - 80);
+      }
+
+      function GetInfo() {
+        $.post("/version", {}, function (result) {
+          var html = "";
+          $('infoModal .modal-body').empty();
+          html = '<table class="table table-sm table-hover"><tbody>';
+
+          $.each(result.info, function (key, value) {
+            html = html + '<tr><th scope="row">' + key + '</th><td>';
+            if (key == 'Firmware') {
+              html = html + value["MAJOR VER"] + '.' + value["MINOR VER"] + '.' + value["SUB VER"];
+            }
+            else {
+              html = html + value;
+            }
+
+            html = html + '</td></tr>';
+          });
+
+          html = html + '</tbody></table>';
+          ModalDisp($('#infoModal'), "Info", html, -1);
+          // $('infoModal .modal-body').html(html);
+        });
+      }
+
+      function ModalDisp(modal, title, html, timout = 1000) {
+        if (title === "error") {
+          modal.find('.modal-header').addClass('alert-danger');
+        }
+        else {
+          modal.find('.modal-header').addClass('alert-success');
+        }
+
+        modal.find('.modal-title').text(title);
+        modal.find('.modal-body').html(html);
+        modal.modal('show');
+
+        if (timout > 0) {
+          setTimeout(function (modal) {
+            modal.modal('hide');
+          }, timout, modal);
+        }
+      }
+    });
+  </script>
+
+</head>
+
+<body>
+  <nav class=" m-2 navbar navbar-expand-lg navbar-dark bg-dark">
+    <a class="navbar-brand" href="#">OBD2 Dongle</a>
+    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavAltMarkup"
+      aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNavAltMarkup">
+      <div class="navbar-nav">
+        <a class="nav-item nav-link active" id="info" href="#">Info</a>
+        <!-- <a class="nav-item nav-link" href="#">Features</a>
+        <a class="nav-item nav-link" href="#">Pricing</a>
+        <a class="nav-item nav-link disabled" href="#">Disabled</a> -->
+      </div>
+    </div>
+  </nav>
+  <div class="m-2 d-flex d-flex justify-content-end">
+    <button type="button" id="add" class="btn btn-success" data-toggle="modal" data-target="#uploadModal">Add
+      File</button>
+    <button type="button" id="flash" class="ml-2 btn btn-success" data-toggle="modal"
+      data-target="#uploadModal">Flash</button>
+    <button type="button" id="refresh" class="ml-2 btn btn-primary">Refresh</button>
+    <button type="button" id="task" class="ml-2 btn btn-primary">Task</button>
+  </div>
+  <div class="d-block">
+    <div class="d-flex m-2 card" style="overflow:auto">
+    </div>
+  </div>
+
+
+  <div class="modal fade" id="uploadModal" tabindex="-1" data-backdrop="static" data-keyboard="false" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modaltitle">New File</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="input-group">
+            <label for="fileUpload" class="form-control" id="labelFilename"></label>
+            <div class="input-group-append">
+              <button type="submit" id="btn-send" class="btn btn-warning" onclick="fileUpload.click();">Browse</button>
+            </div>
+          </div>
+          <input type="file" style="display:none" id="fileUpload">
+          <div class="progress mt-2" style="height: 20px;">
+            <div class="progress-bar" role="progressbar" id="progressUpload"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+          <button type="button" id="upload" value="" class="btn btn-primary">Upload</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="infoModal" tabindex="-1" data-backdrop="static" data-keyboard="false" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modaltitle"></h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
